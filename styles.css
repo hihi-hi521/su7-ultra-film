@@ -24,13 +24,12 @@ p, h1, h2 { margin: 0; }
 #experience { position: relative; width: 100%; height: 100%; height: 100svh; isolation: isolate; }
 .scene { position: absolute; inset: 0; z-index: -2; overflow: hidden; background: #090909; }
 .scene video, .scene img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 52%; }
-.scene video { opacity: 0; transition: opacity 350ms; }
-.scene img { transition: opacity 600ms; }
+.scene video { opacity: 0; z-index: 1; transition: opacity var(--media-transition, 160ms); pointer-events: none; }
+.scene video.is-active { opacity: 1; }
+.scene img { transition: opacity var(--media-transition, 160ms); }
 .is-hero .scene img { transform: translateY(9%); mask-image: linear-gradient(to bottom, transparent, #000 16%); }
-body:not(.is-hero) .scene video { opacity: 1; }
-body:not(.is-hero) .scene img { opacity: 0; pointer-events: none; }
-.scene-shade { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(0 0 0 / 35%), transparent 36%, transparent 62%, rgb(0 0 0 / 78%)); pointer-events: none; }
-#blackout { position: absolute; inset: 0; background: #080909; opacity: 0; transition: opacity 320ms ease; }
+.scene-shade { position: absolute; inset: 0; z-index: 2; background: linear-gradient(180deg, rgb(0 0 0 / 35%), transparent 36%, transparent 62%, rgb(0 0 0 / 78%)); pointer-events: none; }
+#blackout { position: absolute; inset: 0; z-index: 3; background: #080909; opacity: 0; transition: opacity var(--media-transition, 160ms) ease; }
 body.is-transitioning #blackout { opacity: 1; }
 
 .header { height: 104px; position: absolute; top: 0; left: var(--edge); right: var(--edge); display: flex; align-items: center; justify-content: space-between; gap: 24px; z-index: 10; border-bottom: 1px solid rgb(255 255 255 / 16%); }
@@ -110,9 +109,6 @@ body:not(.is-hero) .hero { opacity: 0; transform: translateY(-18px); pointer-eve
 .timeline { position: absolute; bottom: 55px; left: var(--edge); right: var(--edge); display: flex; gap: 5px; }
 .timeline-segment { height: 2px; background: rgb(255 255 255 / 17%); flex: 1; position: relative; }
 .timeline-segment::after { content: ""; position: absolute; inset: 0; background: var(--yellow); transform-origin: left; transform: scaleX(var(--fill, 0)); }
-.loading-status { position: absolute; bottom: 184px; left: var(--edge); width: 210px; display: flex; align-items: center; gap: 14px; font-size: 10px; color: #d5d7cb; transition: opacity 300ms; }
-.loading-status::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--yellow); animation: breathe 1.5s infinite; }
-body:not(.is-loading) .loading-status { opacity: 0; pointer-events: none; }
 .notice { position: absolute; bottom: 170px; left: var(--edge); right: var(--edge); padding: 12px 16px; background: #222521; border-left: 2px solid var(--yellow); font-size: 12px; z-index: 12; display: flex; align-items: center; gap: 18px; line-height: 1.7; }
 
 dialog { color: var(--white); border: 1px solid #353830; padding: 0; background: #111310; max-height: calc(100svh - 48px); border-radius: 0; }
@@ -136,7 +132,6 @@ dialog::backdrop { background: rgb(0 0 0 / 78%); backdrop-filter: blur(12px); }
 .film-close { position: absolute; right: 12px; top: 8px; }
 .noscript { position: fixed; z-index: 100; bottom: 160px; left: 30px; padding: 15px; background: #222; }
 .noscript a { color: var(--yellow); }
-@keyframes breathe { 50% { opacity: 0.25; } }
 
 @media (min-width: 1700px) {
   :root { --edge: 72px; }
@@ -201,7 +196,6 @@ dialog::backdrop { background: rgb(0 0 0 / 78%); backdrop-filter: blur(12px); }
   .footer { bottom: 22px; font-size: 8px; }
   .footer-center { display: none; }
   .timeline { bottom: 52px; gap: 4px; }
-  .loading-status { bottom: 157px; font-size: 9px; }
   .notice { bottom: 145px; font-size: 11px; }
   .chapters-dialog { max-width: calc(100vw - 28px); padding: 24px; max-height: calc(100svh - 28px); }
   .dialog-header { margin-bottom: 23px; }

@@ -2,24 +2,29 @@
   "use strict";
   const { STATIONS, SETTINGS, createWheelGate } = window.SU7_STORY;
   const $ = (id) => document.getElementById(id);
-  const video = $("film");
   const fullFilm = $("full-film");
+  const bgm = $("bgm");
+  const slots = [$("film"), $("film-buffer")].map((video) => ({
+    video, index: -1, failed: false, starting: false, started: false, playToken: 0
+  }));
+  const stills = new Map();
   const body = document.body;
   const gate = createWheelGate();
   const lastStation = STATIONS.length - 1;
   let current = 0;
   let target = 0;
   let playing = false;
-  let ready = false;
   let soundOn = false;
   let generation = 0;
+  let stillGeneration = 0;
+  let musicGeneration = 0;
+  let playAttempt = 0;
+  let activeSlot = null;
+  let frameVideo = null;
   let frameRequest = 0;
-  let timer = 0;
-  let blobURL = null;
-  let loadController = null;
-  let suspendForDialog = false;
-  let suspendForVisibility = false;
-  let resumeOffered = false;
+  let frameTimer = 0;
+  let mediaTimer = 0;
+  let endTimer = 0;
   let touch = null;
   let disposed = false;
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -48,12 +53,13 @@
 
   function setState(state) {
     body.dataset.state = state;
-    $("experience").setAttribute("aria-busy", String(state === "loading"));
-    $("next").disabled = !ready || playing;
-    $("chapters-button").disabled = playing;
-    $("home").disabled = playing;
+    // Media is optional for navigation, including while a clip is buffering.
+    $("experience").setAttribute("aria-busy", "false");
+    $("next").disabled = false;
+    $("chapters-button").disabled = false;
+    $("home").disabled = false;
     document.querySelectorAll("[data-jump], .rail-button, .chapter-card").forEach((button) => {
-      button.disabled = !ready || playing;
+      button.disabled = false;
     });
   }
 
@@ -116,6 +122,7 @@
     body.dataset.station = current;
     body.classList.toggle("is-hero", current === 0);
     body.classList.toggle("is-ended", current === lastStation);
+    showStill(current);
     $("chapter-number").textContent = number;
     $("chapter-name").textContent = station.name;
     $("chapter-en").textContent = station.en;
@@ -147,9 +154,9 @@
   }
 
   function renderProgress() {
-    const from = STATIONS[current].hold;
-    const end = STATIONS[target].hold;
-    const fraction = playing && target > current ? Math.max(0, Math.min(1, (video.currentTime - from) / (end - from))) : 0;
+    const duration = STATIONS[target].duration;
+    const fraction = playing && activeSlot && duration
+      ? Math.max(0, Math.min(1, activeSlot.video.currentTime / duration)) : 0;
     document.querySelectorAll(".timeline-segment").forEach((segment, i) => {
       segment.style.setProperty("--fill", i < current ? "1" : i === current ? String(fraction) : "0");
     });
@@ -157,222 +164,267 @@
   }
 
   function clearFrame() {
-    if (video.cancelVideoFrameCallback && frameRequest) video.cancelVideoFrameCallback(frameRequest);
-    clearTimeout(timer);
+    if (frameVideo && frameVideo.cancelVideoFrameCallback && frameRequest) frameVideo.cancelVideoFrameCallback(frameRequest);
+    clearTimeout(frameTimer);
     frameRequest = 0;
+    frameVideo = null;
   }
 
-  function settle(index) {
+  function clearPlaybackTimers() {
     clearFrame();
-    video.pause();
+    clearTimeout(mediaTimer);
+    clearTimeout(endTimer);
+  }
+
+  function suspended() {
+    return document.hidden || $("film-dialog").open;
+  }
+
+  function prepareStill(index) {
+    if (!stills.has(index)) {
+      const image = new Image();
+      image.decoding = "async";
+      image.src = STATIONS[index].still || SETTINGS.poster;
+      stills.set(index, image);
+    }
+    return stills.get(index);
+  }
+
+  function showStill(index) {
+    const token = ++stillGeneration;
+    const image = prepareStill(index);
+    const show = () => {
+      if (disposed || token !== stillGeneration || index !== current) return;
+      $("poster").src = image.src;
+      $("poster").dataset.station = String(index);
+    };
+    if (image.complete && image.naturalWidth) show();
+    else image.addEventListener("load", show, { once: true });
+  }
+
+  function prepareClip(index) {
+    if (index < 1 || index > lastStation) return null;
+    const cached = slots.find((slot) => slot.index === index);
+    if (cached && !cached.failed) return cached;
+    const slot = cached || slots.find((item) => item !== activeSlot && item.index < 0)
+      || slots.find((item) => item !== activeSlot && item.index !== current)
+      || slots.find((item) => item !== activeSlot);
+    if (!slot) return null;
+    slot.index = index;
+    slot.failed = false;
+    slot.started = false;
+    slot.starting = false;
+    slot.video.muted = true;
+    slot.video.preload = "auto";
+    slot.video.src = STATIONS[index].clip;
+    slot.video.load();
+    return slot;
+  }
+
+  function warmNext() {
+    if (current === lastStation || disposed) return;
+    prepareStill(current + 1);
+    if (!reducedMotion.matches && !suspended()) prepareClip(current + 1);
+  }
+
+  function settle(index, preload = true) {
+    ++generation;
+    clearPlaybackTimers();
+    slots.forEach((slot) => {
+      slot.video.pause();
+      slot.video.classList.remove("is-active");
+      slot.starting = false;
+      slot.playToken = ++playAttempt;
+    });
+    activeSlot = null;
     playing = false;
-    suspendForVisibility = false;
-    resumeOffered = false;
     body.classList.remove("is-playing", "is-transitioning");
     current = index;
     target = index;
-    video.volume = SETTINGS.volume;
     gate.lock(performance.now());
     renderStation();
     setState("idle");
+    if (preload) warmNext();
   }
 
-  function seek(time) {
-    return new Promise((resolve, reject) => {
-      if (Math.abs(video.currentTime - time) < 0.015 && video.readyState >= 2) return resolve();
-      const cleanup = () => {
-        clearTimeout(timeout);
-        video.removeEventListener("seeked", done);
-        video.removeEventListener("error", failed);
-      };
-      const done = () => { cleanup(); resolve(); };
-      const failed = () => { cleanup(); reject(new Error("seek failed")); };
-      const timeout = setTimeout(failed, 6000);
-      video.addEventListener("seeked", done, { once: true });
-      video.addEventListener("error", failed, { once: true });
-      video.currentTime = time;
-    });
+  function ownsPlayback(slot, token) {
+    return !disposed && playing && activeSlot === slot && token === generation && slot.index === target;
   }
 
-  function scheduleFrame(token) {
-    if (!playing || token !== generation || suspendForDialog || suspendForVisibility) return;
+  function ownsSource(slot) {
+    return Boolean(STATIONS[slot.index] && STATIONS[slot.index].clip)
+      && (!slot.video.currentSrc || slot.video.currentSrc.endsWith(STATIONS[slot.index].clip));
+  }
+
+  function waitForMedia(slot, token) {
+    clearTimeout(mediaTimer);
+    mediaTimer = setTimeout(() => {
+      if (ownsPlayback(slot, token) && !suspended()) settle(target);
+    }, SETTINGS.mediaWait);
+  }
+
+  function scheduleFrame(slot, token) {
+    if (!ownsPlayback(slot, token) || suspended()) return;
+    const video = slot.video;
     const tick = (_now, metadata) => {
-      if (!playing || token !== generation || suspendForDialog || suspendForVisibility) return;
+      if (!ownsPlayback(slot, token) || suspended()) return;
       const time = metadata ? metadata.mediaTime : video.currentTime;
-      const remaining = STATIONS[target].hold - time;
-      if (remaining <= 1 / 30) {
-        const destination = target;
-        video.pause();
-        video.currentTime = STATIONS[destination].hold;
-        settle(destination);
+      if (time >= STATIONS[target].duration - 1 / 24) {
+        settle(target);
         return;
       }
-      video.volume = soundOn ? SETTINGS.volume * Math.min(1, remaining / 0.17) : SETTINGS.volume;
       renderProgress();
-      scheduleFrame(token);
+      scheduleFrame(slot, token);
     };
+    frameVideo = video;
     if (video.requestVideoFrameCallback) frameRequest = video.requestVideoFrameCallback(tick);
-    else timer = setTimeout(() => tick(performance.now()), 16);
+    else frameTimer = setTimeout(() => tick(performance.now()), 16);
   }
 
-  async function moveTo(index) {
-    if (!ready || playing || index < 0 || index > lastStation || index === current) return;
-    hideNotice();
-    const previous = current;
-    const token = ++generation;
-    target = index;
-    playing = true;
-    body.classList.add("is-playing");
+  function revealClip(slot, token) {
+    if (!ownsPlayback(slot, token) || !ownsSource(slot) || suspended()) return;
+    clearPlaybackTimers();
+    slot.started = true;
+    slot.video.classList.add("is-active");
     setState("playing");
+    scheduleFrame(slot, token);
+    // Also finish if the browser stops delivering frame/ended events.
+    const remaining = Math.max(0, STATIONS[target].duration - slot.video.currentTime);
+    endTimer = setTimeout(() => {
+      if (ownsPlayback(slot, token) && !suspended()) settle(target);
+    }, remaining * 1000 + SETTINGS.playbackSlack);
+  }
+
+  function playClip(slot, token) {
+    if (!ownsPlayback(slot, token) || suspended() || slot.starting) return;
+    if (slot.failed) { settle(target); return; }
+    if (slot.video.readyState < 2) return;
+    if (slot.started && !slot.video.paused) return;
+    slot.starting = true;
+    const attempt = ++playAttempt;
+    slot.playToken = attempt;
+    slot.video.muted = true;
+    if (!slot.started) slot.video.currentTime = 0;
     try {
-      // Non-adjacent and reverse navigation use a covered seek, never a visible rewind.
-      if (index !== current + 1 || reducedMotion.matches) {
-        body.classList.add("is-transitioning");
-        await new Promise((resolve) => setTimeout(resolve, reducedMotion.matches ? 0 : SETTINGS.transitionDuration));
-        if (token !== generation) return;
-        await seek(STATIONS[index].hold);
-        if (token !== generation) return;
-        settle(index);
-        return;
-      }
-      if (current === 0) {
-        body.classList.add("is-transitioning");
-        await new Promise((resolve) => setTimeout(resolve, SETTINGS.transitionDuration));
-      }
-      await seek(STATIONS[current].hold);
-      if (token !== generation) return;
-      body.classList.remove("is-hero", "is-transitioning");
-      video.muted = !soundOn;
-      video.volume = SETTINGS.volume;
-      if (suspendForDialog || suspendForVisibility) return;
-      await video.play();
-      if (token !== generation) return;
-      scheduleFrame(token);
-    } catch (error) {
-      if (token !== generation) return;
-      settle(previous);
-      showNotice("播放未能开始，请点击右下角箭头重试。");
+      Promise.resolve(slot.video.play()).then(() => {
+        if (slot.playToken !== attempt) {
+          if (activeSlot !== slot || suspended() || disposed) slot.video.pause();
+          return;
+        }
+        slot.starting = false;
+        if (!ownsPlayback(slot, token)) {
+          if (activeSlot !== slot || !playing || disposed) slot.video.pause();
+          return;
+        }
+        if (suspended()) { slot.video.pause(); return; }
+        revealClip(slot, token);
+      }).catch(() => {
+        if (slot.playToken !== attempt) return;
+        slot.starting = false;
+        if (ownsPlayback(slot, token) && !suspended()) settle(target);
+      });
+    } catch {
+      slot.starting = false;
+      if (ownsPlayback(slot, token)) settle(target);
     }
   }
 
-  function intent(direction) {
-    if (!ready || playing || $("chapters-dialog").open || $("film-dialog").open) return;
-    if (direction > 0 && current === lastStation) return;
-    moveTo(current + direction);
+  function moveTo(index) {
+    if (disposed || index < 0 || index > lastStation) return;
+    if (playing) settle(target, false);
+    if (index === current) return;
+    hideNotice();
+    if (index !== current + 1 || reducedMotion.matches) {
+      settle(index);
+      return;
+    }
+    const token = ++generation;
+    target = index;
+    playing = true;
+    prepareStill(index);
+    body.classList.remove("is-hero");
+    body.classList.add("is-playing");
+    setState("buffering");
+    activeSlot = prepareClip(index);
+    if (!activeSlot) { settle(index); return; }
+    activeSlot.started = false;
+    waitForMedia(activeSlot, token);
+    playClip(activeSlot, token);
   }
 
-  async function restart() {
-    if (!ready || playing) return;
-    if (current === 0) return;
-    await moveTo(0);
+  function intent(direction) {
+    if ($("chapters-dialog").open || $("film-dialog").open) return;
+    const base = playing ? target : current;
+    if (direction > 0 && base === lastStation) return;
+    moveTo(base + direction);
+  }
+
+  function restart() {
+    moveTo(0);
+  }
+
+  function renderSound() {
+    $("sound").setAttribute("aria-pressed", String(soundOn));
+    const label = soundOn ? "关闭背景音乐" : "开启背景音乐";
+    $("sound").setAttribute("aria-label", label);
+    $("sound").dataset.tooltip = label;
+    icon($("sound"), soundOn ? "volume-2" : "volume-x");
+  }
+
+  function musicAllowed() {
+    return soundOn && !disposed && !suspended();
+  }
+
+  async function syncMusic() {
+    const token = ++musicGeneration;
+    if (!musicAllowed()) { bgm.pause(); return; }
+    if (!bgm.src) {
+      bgm.src = SETTINGS.music;
+      bgm.loop = true;
+      bgm.volume = SETTINGS.volume;
+      bgm.load();
+    } else if (bgm.error) bgm.load();
+    if (!bgm.paused) return;
+    try {
+      await bgm.play();
+      if (!musicAllowed()) bgm.pause();
+    } catch {
+      if (token !== musicGeneration || !musicAllowed()) return;
+      soundOn = false;
+      renderSound();
+      showNotice("背景音乐暂未能播放，可点击声音图标重试。");
+    }
   }
 
   function setSound(enabled) {
     soundOn = enabled;
-    video.muted = !enabled;
     fullFilm.muted = !enabled;
-    $("sound").setAttribute("aria-pressed", String(enabled));
-    const label = enabled ? "关闭声音" : "开启声音";
-    $("sound").setAttribute("aria-label", label);
-    $("sound").dataset.tooltip = label;
-    icon($("sound"), enabled ? "volume-2" : "volume-x");
+    renderSound();
+    syncMusic();
   }
 
-  async function resumePlayback() {
-    if (!playing || !ready) return;
-    resumeOffered = false;
-    hideNotice();
-    try {
-      await video.play();
-      scheduleFrame(generation);
-    } catch {
-      resumeOffered = true;
-      showNotice("点击右下角箭头继续播放。");
-      $("next").disabled = false;
+  function pausePreview() {
+    clearPlaybackTimers();
+    if (activeSlot) {
+      activeSlot.playToken = ++playAttempt;
+      activeSlot.starting = false;
+      activeSlot.video.pause();
     }
   }
 
-  function pauseForOverlay() {
-    suspendForDialog = playing;
-    if (playing) {
-      video.pause();
-      clearFrame();
-    }
+  function resumePlayback() {
+    if (suspended() || disposed) return;
+    if (playing && activeSlot) {
+      waitForMedia(activeSlot, generation);
+      playClip(activeSlot, generation);
+    } else warmNext();
   }
 
-  function closeOverlay() {
-    if (!suspendForDialog) return;
-    suspendForDialog = false;
-    if (!document.hidden) resumePlayback();
-  }
-
-  async function loadVideo() {
-    if (loadController) loadController.abort();
-    loadController = new AbortController();
-    ready = false;
-    body.classList.add("is-loading");
-    $("loading-status").hidden = false;
-    setState("loading");
-    hideNotice();
-    $("loading-label").textContent = "准备影像";
-    $("loading-percent").textContent = "0%";
-    try {
-      let src = SETTINGS.video;
-      if (location.protocol !== "file:") {
-        const response = await fetch(SETTINGS.video, { signal: loadController.signal });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const total = Number(response.headers.get("content-length"));
-        const chunks = [];
-        let received = 0;
-        if (response.body) {
-          const reader = response.body.getReader();
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            received += value.byteLength;
-            $("loading-percent").textContent = total ? `${Math.min(99, Math.floor(received / total * 100))}%` : `${(received / 1024 / 1024).toFixed(1)} MB`;
-          }
-          if (blobURL) URL.revokeObjectURL(blobURL);
-          blobURL = URL.createObjectURL(new Blob(chunks, { type: "video/mp4" }));
-        } else {
-          blobURL = URL.createObjectURL(await response.blob());
-        }
-        src = blobURL;
-      }
-      if (disposed) return;
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => { cleanup(); reject(new Error("load timeout")); }, 30000);
-        const cleanup = () => {
-          clearTimeout(timeout);
-          video.removeEventListener("loadeddata", loaded);
-          video.removeEventListener("error", failed);
-        };
-        const loaded = () => { cleanup(); resolve(); };
-        const failed = () => { cleanup(); reject(new Error("media error")); };
-        video.addEventListener("loadeddata", loaded, { once: true });
-        video.addEventListener("error", failed, { once: true });
-        video.src = src;
-        video.load();
-      });
-      await seek(STATIONS[0].hold);
-      ready = true;
-      body.classList.remove("is-loading");
-      $("loading-percent").textContent = "100%";
-      $("loading-status").hidden = true;
-      settle(0);
-    } catch (error) {
-      if (error.name === "AbortError" || disposed) return;
-      body.classList.remove("is-loading");
-      setState("error");
-      showNotice("影像加载失败，请检查本地视频文件后重试。", true);
-    }
-  }
-
+  body.style.setProperty("--media-transition", `${SETTINGS.transitionDuration}ms`);
   buildNavigation();
   icons();
   renderStation();
-  setState("loading");
+  setState("idle");
 
   document.addEventListener("click", (event) => {
     const button = event.target.closest("[data-jump]");
@@ -382,21 +434,19 @@
     moveTo(index);
   });
   $("next").addEventListener("click", () => {
-    if (resumeOffered) resumePlayback();
-    else if (current === lastStation) restart();
+    if ((playing ? target : current) === lastStation) restart();
     else intent(1);
   });
   $("home").addEventListener("click", restart);
   $("sound").addEventListener("click", () => setSound(!soundOn));
-  $("retry").addEventListener("click", loadVideo);
   $("chapters-button").addEventListener("click", () => {
-    if (playing) return;
     $("chapters-dialog").showModal();
   });
   $("close-chapters").addEventListener("click", () => $("chapters-dialog").close());
   $("watch-film").addEventListener("click", () => {
-    pauseForOverlay();
-    if (!fullFilm.src) fullFilm.src = blobURL || SETTINGS.video;
+    pausePreview();
+    bgm.pause();
+    if (!fullFilm.src) fullFilm.src = SETTINGS.video;
     fullFilm.muted = !soundOn;
     $("film-dialog").showModal();
     fullFilm.play().catch(() => {});
@@ -404,7 +454,8 @@
   $("close-film").addEventListener("click", () => $("film-dialog").close());
   $("film-dialog").addEventListener("close", () => {
     fullFilm.pause();
-    closeOverlay();
+    resumePlayback();
+    syncMusic();
   });
   [$("chapters-dialog"), $("film-dialog")].forEach((dialog) => {
     dialog.addEventListener("click", (event) => {
@@ -457,42 +508,44 @@
   }, { passive: true });
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      if (playing && !suspendForDialog) {
-        suspendForVisibility = true;
-        video.pause();
-        clearFrame();
-      }
+      pausePreview();
+      bgm.pause();
       fullFilm.pause();
-    } else if (suspendForVisibility && !suspendForDialog) {
-      suspendForVisibility = false;
+    } else {
       resumePlayback();
+      syncMusic();
     }
   });
-  video.addEventListener("waiting", () => {
-    if (playing) showNotice("影像缓冲中…");
-  });
-  video.addEventListener("playing", hideNotice);
-  video.addEventListener("ended", () => {
-    if (playing) settle(target);
-  });
-  video.addEventListener("error", () => {
-    if (!ready || disposed) return;
-    ++generation;
-    clearFrame();
-    playing = false;
-    ready = false;
-    body.classList.remove("is-playing", "is-transitioning");
-    setState("error");
-    showNotice("影像读取中断，请重新加载。", true);
+  slots.forEach((slot) => {
+    const { video } = slot;
+    ["loadeddata", "canplay"].forEach((event) => {
+      video.addEventListener(event, () => {
+        if (activeSlot === slot && ownsSource(slot)) playClip(slot, generation);
+      });
+    });
+    video.addEventListener("waiting", () => {
+      if (ownsPlayback(slot, generation) && ownsSource(slot) && !suspended()) waitForMedia(slot, generation);
+    });
+    video.addEventListener("playing", () => revealClip(slot, generation));
+    video.addEventListener("ended", () => {
+      if (ownsPlayback(slot, generation) && ownsSource(slot)) settle(target);
+    });
+    video.addEventListener("error", () => {
+      if (!ownsSource(slot)) return;
+      slot.failed = true;
+      if (ownsPlayback(slot, generation)) settle(target);
+    });
   });
   window.addEventListener("pagehide", (event) => {
-    if (event.persisted) return;
-    disposed = true;
-    if (loadController) loadController.abort();
-    clearFrame();
-    video.pause();
+    pausePreview();
+    bgm.pause();
     fullFilm.pause();
-    if (blobURL) URL.revokeObjectURL(blobURL);
+    if (!event.persisted) disposed = true;
   });
-  loadVideo();
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    resumePlayback();
+    syncMusic();
+  });
+  warmNext();
 })();

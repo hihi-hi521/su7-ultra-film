@@ -9,15 +9,16 @@
     <title>小米 SU7 Ultra · 生而极致</title>
     <link rel="icon" href="data:,">
     <link rel="preload" href="assets/poster.jpg" as="image">
-    <link rel="stylesheet" href="styles.css">
-    <script src="assets/lucide.min.js" defer></script>
-    <script src="story.js" defer></script>
-    <script src="app.js" defer></script>
+    <link rel="stylesheet" href="styles.css?v=fast2">
+    <script src="assets/lucide-icons.min.js" defer></script>
+    <script src="story.js?v=fast2" defer></script>
+    <script src="app.js?v=fast2" defer></script>
   </head>
-  <body class="is-hero is-loading" data-station="0" data-state="loading">
+  <body class="is-hero" data-station="0" data-state="idle">
     <main id="experience" aria-label="小米 SU7 Ultra 影像体验">
       <div class="scene" aria-hidden="true">
-        <video id="film" preload="auto" playsinline muted disablepictureinpicture></video>
+        <video id="film" preload="none" playsinline muted disablepictureinpicture></video>
+        <video id="film-buffer" preload="none" playsinline muted disablepictureinpicture></video>
         <img id="poster" src="assets/poster.jpg" alt="" fetchpriority="high">
         <div class="scene-shade"></div>
         <div id="blackout"></div>
@@ -36,7 +37,7 @@
           <button data-jump="6">释放</button>
         </nav>
         <div class="header-tools">
-          <button class="icon-button" id="sound" aria-label="开启声音" aria-pressed="false" data-tooltip="开启声音">
+          <button class="icon-button" id="sound" aria-label="开启背景音乐" aria-pressed="false" data-tooltip="开启背景音乐">
             <i data-lucide="volume-x"></i>
           </button>
           <button class="icon-button" id="chapters-button" aria-label="打开章节" data-tooltip="章节">
@@ -80,10 +81,10 @@
           <span id="next-name">01 / 觉醒</span>
         </div>
         <div class="bottom-actions">
-          <button class="text-button film-button" id="watch-film"><i data-lucide="play"></i><span>观看原片</span></button>
+          <button class="text-button film-button" id="watch-film" aria-label="观看原片" title="观看原片"><i data-lucide="play"></i><span>观看原片</span></button>
           <span class="action-divider"></span>
           <span class="next-action-label" id="next-action-label">启程</span>
-          <button class="next-button" id="next" aria-label="启程：播放第一段" title="下一章" disabled>
+          <button class="next-button" id="next" aria-label="启程：播放第一段" title="下一章">
             <i data-lucide="arrow-down"></i>
             <svg class="progress-ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30"></circle></svg>
           </button>
@@ -96,14 +97,12 @@
         <span id="counter">00 / 10</span>
       </footer>
       <div class="timeline" id="timeline" aria-hidden="true"></div>
-      <div class="loading-status" id="loading-status" role="status">
-        <span id="loading-label">准备影像</span><span id="loading-percent">0%</span>
-      </div>
       <div class="notice" id="notice" role="status" hidden>
         <span id="notice-text"></span>
         <button id="retry" class="text-button" hidden>重新加载</button>
       </div>
     </main>
+    <audio id="bgm" preload="none" loop></audio>
 
     <dialog class="chapters-dialog" id="chapters-dialog" aria-labelledby="chapters-title">
       <div class="dialog-header">
