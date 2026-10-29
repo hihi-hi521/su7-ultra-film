@@ -2,6 +2,13 @@
 
 独立概念网站，非小米官方网站。影像来自用户提供的 `10月29日.mov`。
 
+## 在线访问
+
+公开地址：https://hihi-hi521.github.io/su7-ultra-film/
+
+托管在 GitHub Pages，发布源为 `main` 分支根目录。推送更新后自动重新发布。
+本次没有开通付费托管或购买域名。中国境内不同网络的访问情况需要分别实测。
+
 直接打开 `index.html` 即可使用，不需要安装依赖或运行构建。
 部署时保留 `index.html`、`styles.css`、`story.js`、`app.js` 和整个 `assets/` 目录。
 
