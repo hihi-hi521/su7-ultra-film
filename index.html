@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#090a0a">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="description" content="小米 SU7 Ultra 独立概念影像体验。">
+    <title>小米 SU7 Ultra · 生而极致</title>
+    <link rel="icon" href="data:,">
+    <link rel="preload" href="assets/poster.jpg" as="image">
+    <link rel="stylesheet" href="styles.css">
+    <script src="assets/lucide.min.js" defer></script>
+    <script src="story.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body class="is-hero is-loading" data-station="0" data-state="loading">
+    <main id="experience" aria-label="小米 SU7 Ultra 影像体验">
+      <div class="scene" aria-hidden="true">
+        <video id="film" preload="auto" playsinline muted disablepictureinpicture></video>
+        <img id="poster" src="assets/poster.jpg" alt="" fetchpriority="high">
+        <div class="scene-shade"></div>
+        <div id="blackout"></div>
+      </div>
+
+      <header class="header">
+        <button class="wordmark" id="home" aria-label="返回序幕" title="返回序幕">
+          <span class="xiaomi">xiaomi</span>
+          <span class="brand-divider"></span>
+          <span class="brand-model">SU7 <em>Ultra</em></span>
+        </button>
+        <nav class="top-nav" aria-label="主题导航">
+          <button data-jump="1">序幕</button>
+          <button data-jump="3">设计</button>
+          <button data-jump="4">驾驭</button>
+          <button data-jump="6">释放</button>
+        </nav>
+        <div class="header-tools">
+          <button class="icon-button" id="sound" aria-label="开启声音" aria-pressed="false" data-tooltip="开启声音">
+            <i data-lucide="volume-x"></i>
+          </button>
+          <button class="icon-button" id="chapters-button" aria-label="打开章节" data-tooltip="章节">
+            <i data-lucide="grid-2x2"></i>
+          </button>
+          <button class="icon-button fullscreen-button" id="fullscreen" aria-label="全屏" data-tooltip="全屏">
+            <i data-lucide="maximize"></i>
+          </button>
+        </div>
+      </header>
+
+      <section class="hero" aria-labelledby="hero-title">
+        <p class="eyebrow"><span class="small-line"></span> XIAOMI PERFORMANCE</p>
+        <h1 id="hero-title">SU7 <em>ULTRA</em><span class="title-dot">.</span></h1>
+        <p class="hero-tagline">生而极致。</p>
+      </section>
+
+      <section class="caption" aria-live="polite" aria-atomic="true">
+        <p class="eyebrow" id="caption-kicker"></p>
+        <h2 id="caption-title"></h2>
+        <p class="caption-description" id="caption-description"></p>
+      </section>
+
+      <aside class="chapter-rail" aria-label="影像章节">
+        <span class="rail-label">ULTRA / 10</span>
+        <div id="rail-buttons"></div>
+        <span class="rail-end">END</span>
+      </aside>
+
+      <div class="bottom-meta">
+        <div class="chapter-status">
+          <span class="chapter-number" id="chapter-number">00</span>
+          <span class="chapter-status-line"></span>
+          <div>
+            <p id="chapter-name">序幕</p>
+            <p class="meta-en" id="chapter-en">THE ULTRA EXPERIENCE</p>
+          </div>
+        </div>
+        <div class="next-preview">
+          <span class="next-label" id="next-label">UP NEXT</span>
+          <span id="next-name">01 / 觉醒</span>
+        </div>
+        <div class="bottom-actions">
+          <button class="text-button film-button" id="watch-film"><i data-lucide="play"></i><span>观看原片</span></button>
+          <span class="action-divider"></span>
+          <span class="next-action-label" id="next-action-label">启程</span>
+          <button class="next-button" id="next" aria-label="启程：播放第一段" title="下一章" disabled>
+            <i data-lucide="arrow-down"></i>
+            <svg class="progress-ring" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30"></circle></svg>
+          </button>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <span>独立概念设计 · 非官方网站</span>
+        <span class="footer-center">XIAOMI SU7 ULTRA</span>
+        <span id="counter">00 / 10</span>
+      </footer>
+      <div class="timeline" id="timeline" aria-hidden="true"></div>
+      <div class="loading-status" id="loading-status" role="status">
+        <span id="loading-label">准备影像</span><span id="loading-percent">0%</span>
+      </div>
+      <div class="notice" id="notice" role="status" hidden>
+        <span id="notice-text"></span>
+        <button id="retry" class="text-button" hidden>重新加载</button>
+      </div>
+    </main>
+
+    <dialog class="chapters-dialog" id="chapters-dialog" aria-labelledby="chapters-title">
+      <div class="dialog-header">
+        <div><p class="eyebrow">THE ULTRA EXPERIENCE</p><h2 id="chapters-title">十幕，极致。</h2></div>
+        <button class="icon-button" id="close-chapters" aria-label="关闭章节" data-tooltip="关闭"><i data-lucide="x"></i></button>
+      </div>
+      <div class="chapter-grid" id="chapter-grid"></div>
+      <p class="dialog-footnote">XIAOMI SU7 ULTRA / PERFORMANCE FILM</p>
+    </dialog>
+
+    <dialog class="film-dialog" id="film-dialog" aria-label="观看 SU7 Ultra 原片">
+      <button class="icon-button film-close" id="close-film" aria-label="关闭原片" data-tooltip="关闭"><i data-lucide="x"></i></button>
+      <video id="full-film" controls playsinline preload="none" poster="assets/poster.jpg"></video>
+    </dialog>
+    <noscript><p class="noscript">此影像体验需要启用 JavaScript。<a href="assets/su7-ultra.mp4">观看原片</a></p></noscript>
+  </body>
+</html>
